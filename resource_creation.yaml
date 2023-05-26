@@ -53,7 +53,7 @@ Resources:
     Properties:
       Description: "Scheduled rule/expression to start the lambda function"
       Name: "CustomEventRule"
-      ScheduleExpression: "cron(30 * ? * * *)"
+      ScheduleExpression: "rate(30 minutes)"
       State: "ENABLED"
       Targets: # attaching the taret lambda function
         - Arn: !GetAtt "LambdaIngestionFunc.Arn"

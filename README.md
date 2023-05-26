@@ -4,6 +4,8 @@ Repostiory contains file needed to complete TDF Technical Challenge
 
 To run the data pipeline/challenge, just upload the file into cloudformation and create the stack. Necessary roles, permissions, lambda function and s3 bucket required, will be created from the same .yaml file. 
 
+The api data updates every 30 minutes and the function runs at the same intervals. 
+
 Assumptions that were considered while completing the challenge:
     1. Name of the bucket remains unique, as in no one else has the same name for their bucket. 
     2. Person/account evaluating the data pipe does have access to IAM service from aws. 
