@@ -1,0 +1,132 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Cloud Formation .yaml file for technical challenge
+
+Resources:
+  
+  # creation of role that can be used by all services
+  IamRoleForAll:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: RoleForAll
+      Description: 'Grants access to all required services by assuming roles'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - lambda.amazonaws.com
+              - cloudformation.amazonaws.com
+              - events.amazonaws.com
+              - s3.amazonaws.com
+              - cloudwatch.amazonaws.com
+              - logs.amazonaws.com
+            Action:
+            - 'sts:AssumeRole'
+      Path: '/'
+      MaxSessionDuration: 3600 # 1 hour in seconds
+  
+  # creation of policy that grants access to all required services
+  IamPolicyForAll:
+    Type: 'AWS::IAM::Policy'
+    Properties:
+      PolicyName: PolicyForAll
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - "cloudwatch:*"
+              - "logs:*"
+              - "s3:*"
+              - "lambda:*"
+              - "cloudformation:*"
+              - "events:*"
+            Resource: "*"
+      Roles: 
+        - !Ref IamRoleForAll # attaching the policy to all the roles
+  
+  # creating the cron rule that runs every 30 mins on all days of the month. 
+  CustomEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Scheduled rule/expression to start the lambda function"
+      Name: "CustomEventRule"
+      ScheduleExpression: "cron(30 * ? * * *)"
+      State: "ENABLED"
+      Targets: # attaching the taret lambda function
+        - Arn: !GetAtt "LambdaIngestionFunc.Arn"
+          Id: "LambdaIngestionFunc"
+
+  # creating a s3 bucket to save the data from api. 
+  CustomS3Bucket:
+    Type: 'AWS::S3::Bucket'
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: tdf-tech-api-ingestion-bucket
+
+  # creating lambda function that use python programming language to get data from 
+  # api and save it in s3 bucket
+  LambdaIngestionFunc:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: "Python code to read api url and save json file into s3 bucket."
+      FunctionName: "LambdaIngestionFunc"
+      Runtime: python3.7
+      Role: !GetAtt "IamRoleForAll.Arn"
+      Handler: index.lambda_handler
+      Environment:
+        Variables:
+          bucketname: tdf-tech-api-ingestion-bucket # name of the bucket to save api data
+          bucketregion: !Ref AWS::Region
+      Timeout: 60 # can run only for 60 secs at any given time. To avoid api delays
+      Code:
+        ZipFile: |
+          # imports
+          import os
+          import boto3
+          import json
+          from botocore.vendored import requests
+
+          # setting up variables
+          bucket_name = os.environ['bucketname']
+          bucket_region = os.environ['bucketregion']
+          api_query_url = 'http://reg.bom.gov.au/fwo/IDV60901/IDV60901.95936.json'
+
+          # setting up s3 client
+          client_s3 = boto3.client('s3', bucket_region)
+
+          def lambda_handler(event, context):
+              try:
+                  # getting data from api
+                  response_api = requests.get(api_query_url)
+                  # convert json object to json string for saving purpose
+                  data_string = json.dumps(response_api.json(), indent=4, default=str)
+                  
+                  # putting the read api data into s3 bucket
+                  response_s3 = client_s3.put_object(
+                      Bucket=bucket_name, 
+                      Key='api_data.json',
+                      Body=data_string
+                  )
+                  if response_s3['ResponseMetadata']['HTTPStatusCode'] == 200:
+                      return {
+                          "statusCode": 200,
+                          "body": "Data saved into the bucket successfully."
+                      }
+              except Exception as e:
+                  print(e)
+                  return {
+                      "statusCode": 200,
+                      "body": "Error occured, check logs for detailed explanation"
+                  }
+
+  # granting permission to cron rule to execute the api function
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaIngestionFunc
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt "CustomEventRule.Arn"
